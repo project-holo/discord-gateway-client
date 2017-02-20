@@ -15,11 +15,6 @@ import (
 	stompmanager "github.com/project-holo/discord-gateway-client/stomp"
 )
 
-const (
-	messageCreate = "MESSAGE_CREATE"
-	ready         = "READY"
-)
-
 var (
 	discord           *discordgo.Session
 	stomp             *stompgo.Conn
@@ -61,18 +56,6 @@ func serializeAndDispatchEvent(Type string, data interface{}) {
 		}).Errorf("Failed to commit transaction to STOMP broker")
 		return
 	}
-}
-
-// onMessageCreate serializes and sends incoming messages to the STOMP events
-// destination.
-func onMessageCreate(s *discordgo.Session, m *discordgo.Message) {
-	serializeAndDispatchEvent(messageCreate, *m)
-}
-
-// onReady serializes and sends ready packets to the STOMP events destination.
-func onReady(s *discordgo.Session, e *discordgo.Ready) {
-	//s.UpdateStatus(0, "ProjectHOLO")
-	serializeAndDispatchEvent(ready, *e)
 }
 
 func main() {
@@ -123,9 +106,47 @@ func main() {
 	discord = d
 	log.Debug("created Discord session")
 
-	// Add event handlers
+	// Add Discord gateway event handlers (in order of list in events.go)
+	discord.AddHandler(onReady)   // READY
+	discord.AddHandler(onResumed) // RESUMED
+
+	discord.AddHandler(onChannelCreate) // CHANNEL_CREATE
+	discord.AddHandler(onChannelUpdate) // CHANNEL_UPDATE
+	discord.AddHandler(onChannelDelete) // CHANNEL_DELETE
+
+	discord.AddHandler(onGuildCreate) // GUILD_CREATE
+	discord.AddHandler(onGuildUpdate) // GUILD_UPDATE
+	discord.AddHandler(onGuildDelete) // GUILD_DELETE
+
+	discord.AddHandler(onGuildBanAdd)    // GUILD_BAN_ADD
+	discord.AddHandler(onGuildBanRemove) // GUILD_BAN_REMOVE
+
+	discord.AddHandler(onGuildEmojisUpdate) // GUILD_EMOJIS_UPDATE
+
+	discord.AddHandler(onGuildIntegrationsUpdate) // GUILD_INTEGRATIONS_UPDATE
+
+	discord.AddHandler(onGuildMemberAdd)    // GUILD_MEMBER_ADD
+	discord.AddHandler(onGuildMemberRemove) // GUILD_MEMBER_REMOVE
+	discord.AddHandler(onGuildMemberUpdate) // GUILD_MEMBER_UPDATE
+	discord.AddHandler(onGuildMembersChunk) // GUILD_MEMBERS_CHUNK
+
+	discord.AddHandler(onGuildRoleCreate) // GUILD_ROLE_CREATE
+	discord.AddHandler(onGuildRoleUpdate) // GUILD_ROLE_UPDATE
+	discord.AddHandler(onGuildRoleDelete) // GUILD_ROLE_DELETE
+
 	discord.AddHandler(onMessageCreate) // MESSAGE_CREATE
-	discord.AddHandler(onReady)         // READY
+	discord.AddHandler(onMessageUpdate) // MESSAGE_UPDATE
+	discord.AddHandler(onMessageDelete) // MESSAGE_DELETE
+
+	discord.AddHandler(onPresenceUpdate) // PRESENCE_UPDATE
+
+	discord.AddHandler(onTypingStart) // TYPING_START
+
+	discord.AddHandler(onUserSettingsUpdate) // USER_SETTINGS_UPDATE
+	discord.AddHandler(onUserUpdate)         // USER_UPDATE
+
+	discord.AddHandler(onVoiceStateUpdate)  // VOICE_STATE_UPDATE
+	discord.AddHandler(onVoiceServerUpdate) // VOICE_SERVER_UPDATE
 
 	// Connect to the Discord gateway
 	err = discord.Open()
