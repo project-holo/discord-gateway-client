@@ -6,21 +6,37 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"time"
 
 	log "github.com/Sirupsen/logrus"
 	"github.com/bwmarrin/discordgo"
-	stompgo "github.com/go-stomp/stomp"
+	"github.com/gmallard/stompngo"
 
 	discordmanager "github.com/project-holo/discord-gateway-client/discord"
 	stompmanager "github.com/project-holo/discord-gateway-client/stomp"
 )
 
-var (
-	discord           *discordgo.Session
-	stomp             *stompgo.Conn
+// Event message send parameters.
+const (
 	eventsDestination = "/events"
+	consumeWindow     = time.Minute * 5 // 5 minute window
 )
 
+// Storage variables for Discord and STOMP connections.
+var (
+	discord *discordgo.Session
+	stomp   *stompngo.Connection
+)
+
+// Default headers to send with all STOMP event messages.
+var defaultEventMessageHeaders = stompngo.Headers{
+	stompngo.HK_DESTINATION, eventsDestination,
+	"persistent", "true",
+	"priority", "10",
+	stompngo.HK_CONTENT_TYPE, "application/json; charset=utf8",
+}
+
+// Event data struct for all STOMP event messages.
 type event struct {
 	Type    string      `json:"type"`
 	ShardID int         `json:"shard_id"`
@@ -30,6 +46,7 @@ type event struct {
 // serializeAndDispatchEvent serializes and sends data to the events destination
 // on the STOMP broker.
 func serializeAndDispatchEvent(Type string, data interface{}) {
+	// JSON encode data
 	j, err := json.Marshal(event{
 		Type:    Type,
 		ShardID: discord.ShardID,
@@ -41,26 +58,26 @@ func serializeAndDispatchEvent(Type string, data interface{}) {
 		}).Errorf("Failed to serialize %v event", Type)
 		return
 	}
-	t := stomp.Begin()
-	err = t.Send(eventsDestination, "application/json", []byte(j))
+
+	// Construct message headers
+	var body = []byte(j)
+	h := stompngo.Headers{
+		"expires", strconv.FormatInt(time.Now().Add(consumeWindow).UnixNano()/1000000, 10),
+		stompngo.HK_CONTENT_LENGTH, strconv.Itoa(len(body)),
+	}
+
+	// Send the message
+	err = stomp.SendBytes(defaultEventMessageHeaders.AddHeaders(h), body)
 	if err != nil {
 		log.WithFields(log.Fields{
 			"error": err,
 		}).Errorf("Failed to send a message to the STOMP broker")
-		return
-	}
-	err = t.Commit()
-	if err != nil {
-		log.WithFields(log.Fields{
-			"error": err,
-		}).Errorf("Failed to commit transaction to STOMP broker")
-		return
 	}
 }
 
 func main() {
 	var (
-		Debug      = flag.Bool("d", false, "Debug mode (bool)")
+		Debug      = flag.Bool("d", false, "Enable debug mode")
 		ShardCount = flag.String("c", "0", "Shard count")
 		ShardID    = flag.String("s", "0", "Shard ID")
 		StompURI   = flag.String("b", "", "STOMP broker connection URI")
@@ -106,47 +123,11 @@ func main() {
 	discord = d
 	log.Debug("created Discord session")
 
-	// Add Discord gateway event handlers (in order of list in events.go)
-	discord.AddHandler(onReady)   // READY
-	discord.AddHandler(onResumed) // RESUMED
-
-	discord.AddHandler(onChannelCreate) // CHANNEL_CREATE
-	discord.AddHandler(onChannelUpdate) // CHANNEL_UPDATE
-	discord.AddHandler(onChannelDelete) // CHANNEL_DELETE
-
-	discord.AddHandler(onGuildCreate) // GUILD_CREATE
-	discord.AddHandler(onGuildUpdate) // GUILD_UPDATE
-	discord.AddHandler(onGuildDelete) // GUILD_DELETE
-
-	discord.AddHandler(onGuildBanAdd)    // GUILD_BAN_ADD
-	discord.AddHandler(onGuildBanRemove) // GUILD_BAN_REMOVE
-
-	discord.AddHandler(onGuildEmojisUpdate) // GUILD_EMOJIS_UPDATE
-
-	discord.AddHandler(onGuildIntegrationsUpdate) // GUILD_INTEGRATIONS_UPDATE
-
-	discord.AddHandler(onGuildMemberAdd)    // GUILD_MEMBER_ADD
-	discord.AddHandler(onGuildMemberRemove) // GUILD_MEMBER_REMOVE
-	discord.AddHandler(onGuildMemberUpdate) // GUILD_MEMBER_UPDATE
-	discord.AddHandler(onGuildMembersChunk) // GUILD_MEMBERS_CHUNK
-
-	discord.AddHandler(onGuildRoleCreate) // GUILD_ROLE_CREATE
-	discord.AddHandler(onGuildRoleUpdate) // GUILD_ROLE_UPDATE
-	discord.AddHandler(onGuildRoleDelete) // GUILD_ROLE_DELETE
-
-	discord.AddHandler(onMessageCreate) // MESSAGE_CREATE
-	discord.AddHandler(onMessageUpdate) // MESSAGE_UPDATE
-	discord.AddHandler(onMessageDelete) // MESSAGE_DELETE
-
-	discord.AddHandler(onPresenceUpdate) // PRESENCE_UPDATE
-
-	discord.AddHandler(onTypingStart) // TYPING_START
-
-	discord.AddHandler(onUserSettingsUpdate) // USER_SETTINGS_UPDATE
-	discord.AddHandler(onUserUpdate)         // USER_UPDATE
-
-	discord.AddHandler(onVoiceStateUpdate)  // VOICE_STATE_UPDATE
-	discord.AddHandler(onVoiceServerUpdate) // VOICE_SERVER_UPDATE
+	// Add Discord gateway event handlers
+	for i := 0; i < len(eventHandlers); i++ {
+		discord.AddHandler(eventHandlers[i])
+	}
+	log.Debugf("attached %v event handlers to Discord session", len(eventHandlers))
 
 	// Connect to the Discord gateway
 	err = discord.Open()

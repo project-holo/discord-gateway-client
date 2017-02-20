@@ -40,8 +40,5 @@ worker nodes that process the incoming events.
 - [x] VOICE\_STATE_UPDATE
 - [x] VOICE\_SERVER_UPDATE
 
-Note: some of these events won't ever be serialized, as it's useless for this
-application.
-
 ### License
 A copy of the MIT license can be found in `LICENSE`.

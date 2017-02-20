@@ -1,30 +1,49 @@
 package discordgatewayclient_stompmanager
 
 import (
+	"fmt"
+	"net"
 	"net/url"
 	"strings"
+	"time"
 
-	"github.com/go-stomp/stomp"
+	log "github.com/Sirupsen/logrus"
+	"github.com/gmallard/stompngo"
 )
 
-// Errors
+const (
+	// Accepted STOMP protocol versions.
+	AcceptedVersions = "1.1,1.2"
+
+	// Read and write timeout values.
+	ReadTimeout  = time.Minute / time.Millisecond
+	WriteTimeout = time.Minute / time.Millisecond
+)
+
+// Errors.
 var (
-	errInvalidURIScheme = stompConnectionError{Msg: "invalid connection URI scheme, must be \"stomp\""}
-	errFailedToPassURI  = stompConnectionError{Msg: "failed to parse connection URI"}
-	errMissingURI       = stompConnectionError{Msg: "missing connection URI, must be set"}
+	errInvalidURIScheme           = stompConnectionURIError{Msg: "invalid connection URI scheme, must be \"stomp\""}
+	errFailedToPassURI            = stompConnectionURIError{Msg: "failed to parse connection URI"}
+	errMissingURI                 = stompConnectionURIError{Msg: "missing connection URI, must be set"}
+	errURIUsernameWithoutPassword = stompConnectionURIError{Msg: "username supplied on URI without password"}
 )
 
-type stompConnectionError struct {
+var defaultConnectHeaders = stompngo.Headers{
+	stompngo.HK_HEART_BEAT, fmt.Sprintf("%d,%d", WriteTimeout, ReadTimeout),
+	stompngo.HK_ACCEPT_VERSION, AcceptedVersions,
+}
+
+type stompConnectionURIError struct {
 	Msg string
 }
 
-func (e stompConnectionError) Error() string {
+func (e stompConnectionURIError) Error() string {
 	return e.Msg
 }
 
 // CreateStompConnection creates a connection to a STOMP broker from a
 // connection URI and returns it.
-func CreateStompConnection(uri string) (*stomp.Conn, error) {
+func CreateStompConnection(uri string) (*stompngo.Connection, error) {
 	// Parse connection URI
 	if uri == "" {
 		return nil, errMissingURI
@@ -39,22 +58,36 @@ func CreateStompConnection(uri string) (*stomp.Conn, error) {
 	if u.Port() == "" {
 		u.Host += ":61613"
 	}
-
-	// Decide connection options
-	opts := []func(*stomp.Conn) error{}
 	if u.User != nil {
-		user := u.User.Username()
-		if pass, pSet := u.User.Password(); pSet {
-			opts = append(opts, stomp.ConnOpt.Login(user, pass))
+		if _, pSet := u.User.Password(); !pSet {
+			return nil, errURIUsernameWithoutPassword
 		}
 	}
-	path := u.EscapedPath()
-	if path != "" && path != "/" {
-		opts = append(opts, stomp.ConnOpt.Host(strings.Split(path, "/")[0]))
-	}
-	opts = append(opts, stomp.ConnOpt.AcceptVersion(stomp.V11))
-	opts = append(opts, stomp.ConnOpt.AcceptVersion(stomp.V12))
+	log.Debug("validated STOMP connection URI")
 
-	// Create connection... or not
-	return stomp.Dial("tcp", u.Host, opts...)
+	// Decide connection-specific headers
+	h := stompngo.Headers{}
+	if path := u.EscapedPath(); path != "" && path != "/" {
+		h = h.Add(stompngo.HK_HOST, strings.Split(path, "/")[0])
+	} else {
+		h = h.Add(stompngo.HK_HOST, "")
+	}
+	if u.User != nil {
+		h = h.Add(stompngo.HK_LOGIN, u.User.Username())
+		pass, _ := u.User.Password()
+		h = h.Add(stompngo.HK_PASSCODE, pass)
+	}
+	log.WithFields(log.Fields{
+		"headers": fmt.Sprintf("%#v", h),
+	}).Debug("constructed STOMP connection-specific headers")
+
+	// Create network connection
+	n, err := net.Dial(stompngo.NetProtoTCP, u.Host)
+	if err != nil {
+		return nil, err
+	}
+	log.Debug("created net.Conn for STOMP client connection")
+
+	// Connect to the STOMP broker
+	return stompngo.Connect(n, h.AddHeaders(defaultConnectHeaders))
 }

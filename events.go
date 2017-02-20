@@ -2,7 +2,7 @@ package main
 
 import "github.com/bwmarrin/discordgo"
 
-// Discord gateway event types (in order of list in README.md)
+// Discord gateway event types (in order of list in README.md).
 const (
 	ready   = "READY"
 	resumed = "RESUMED"
@@ -31,10 +31,10 @@ const (
 	guildRoleUpdate = "GUILD_ROLE_UPDATE"
 	guildRoleDelete = "GUILD_ROLE_DELETE"
 
-	messageCreate     = "MESSAGE_CREATE"
-	messageUpdate     = "MESSAGE_UPDATE"
-	messageDelete     = "MESSAGE_DELETE"
-	messageDeleteBulk = "MESSAGE_DELETE_BULK"
+	messageCreate = "MESSAGE_CREATE"
+	messageUpdate = "MESSAGE_UPDATE"
+	messageDelete = "MESSAGE_DELETE"
+	// messageDeleteBulk = "MESSAGE_DELETE_BULK"
 
 	presenceUpdate = "PRESENCE_UPDATE"
 
@@ -46,6 +46,50 @@ const (
 	voiceStateUpdate  = "VOICE_STATE_UPDATE"
 	voiceServerUpdate = "VOICE_SERVER_UPDATE"
 )
+
+// Event handlers.
+var eventHandlers = []interface{}{
+	onReady,
+	onResumed,
+
+	onChannelCreate,
+	onChannelUpdate,
+	onChannelDelete,
+
+	onGuildCreate,
+	onGuildUpdate,
+	onGuildDelete,
+
+	onGuildBanAdd,
+	onGuildBanRemove,
+
+	onGuildEmojisUpdate,
+
+	onGuildIntegrationsUpdate,
+
+	onGuildMemberAdd,
+	onGuildMemberRemove,
+	onGuildMemberUpdate,
+	onGuildMembersChunk,
+
+	onGuildRoleCreate,
+	onGuildRoleUpdate,
+	onGuildRoleDelete,
+
+	onMessageCreate,
+	onMessageUpdate,
+	onMessageDelete,
+
+	onPresenceUpdate,
+
+	onTypingStart,
+
+	onUserSettingsUpdate,
+	onUserUpdate,
+
+	onVoiceStateUpdate,
+	onVoiceServerUpdate,
+}
 
 func onReady(s *discordgo.Session, e *discordgo.Ready) {
 	//s.UpdateStatus(0, "ProjectHOLO")

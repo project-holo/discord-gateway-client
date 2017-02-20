@@ -19,6 +19,7 @@ func CreateDiscordClient(token string, shardID, shardCount int) (*discordgo.Sess
 	if err != nil {
 		return nil, nil, err
 	}
+	log.Debug("fetched /users/@me from Discord API")
 	log.Debugf("@me=%v", me.ID)
 	log.Debugf("persona=%v#%v", me.Username, me.Discriminator)
 
