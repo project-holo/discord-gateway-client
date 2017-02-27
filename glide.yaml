@@ -1,0 +1,5 @@
+package: github.com/project-holo/discord-gateway-client
+import:
+- package: github.com/Sirupsen/logrus
+- package: github.com/bwmarrin/discordgo
+- package: github.com/gmallard/stompngo

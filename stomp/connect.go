@@ -1,4 +1,4 @@
-package discordgatewayclient_stompmanager
+package stomp
 
 import (
 	"fmt"
@@ -12,11 +12,12 @@ import (
 )
 
 const (
-	// Accepted STOMP protocol versions.
+	// AcceptedVersions are accepted STOMP protocol versions.
 	AcceptedVersions = "1.1,1.2"
 
-	// Read and write timeout values.
-	ReadTimeout  = time.Minute / time.Millisecond
+	// ReadTimeout refers to the read timeout value.
+	ReadTimeout = time.Minute / time.Millisecond
+	// WriteTimeout refers to the write timeout value.
 	WriteTimeout = time.Minute / time.Millisecond
 )
 
@@ -55,9 +56,7 @@ func CreateStompConnection(uri string) (*stompngo.Connection, error) {
 	if u.Scheme != "stomp" {
 		return nil, errInvalidURIScheme
 	}
-	if u.Port() == "" {
-		u.Host += ":61613"
-	}
+	u.Host += ":61613"
 	if u.User != nil {
 		if _, pSet := u.User.Password(); !pSet {
 			return nil, errURIUsernameWithoutPassword

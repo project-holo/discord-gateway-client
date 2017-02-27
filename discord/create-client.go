@@ -1,4 +1,4 @@
-package discordgatewayclient_discordmanager
+package discord
 
 import (
 	log "github.com/Sirupsen/logrus"
