@@ -1,13 +1,18 @@
-# ProjectHOLO Discord Client
-Lightweight Golang Discord client that receives incoming events from the Discord
-gateway, serializes them into JSON, and passes them over a STOMP broker to the
-worker nodes that process the incoming events.
+# ProjectHOLO Discord Gateway Client
+Lightweight Golang Discord client that receives incoming events from the
+Discord gateway, serializes them into JSON, and passes them over a STOMP
+broker to the worker nodes that process the incoming events.
 
 ### Usage
 1. Build it: `go build -o discord-gateway-client`
-2. `discord-gateway-client -t "Bot TOKEN_HERE" -b "stomp://login:passcode@host:port/host"`
-3. ~~If you'd prefer to use environment variables: `DISCORD_TOKEN`, `STOMP_URI`, `DEBUG`~~ *soon*
-4. If you want debug lines in console, `-d true`
+2. `discord-gateway-client --token "Bot TOKEN_HERE" --broker
+   "stomp://login:passcode@host:port/host"`
+3. If you'd prefer to use environment variables or would like shard
+   configuration, check `init()` in
+   [discord-gateway-client.go](discord-gateway-client.go)
+4. If you want debug lines in console, set `-d true` or `DEBUG=true`
+5. Consume events from `/events` on the virtual host of the broker
+   (unless you changed the destination).
 
 ### Serializes (in order of Discord documentation)
 - [x] READY
@@ -32,7 +37,7 @@ worker nodes that process the incoming events.
 - [x] MESSAGE_CREATE
 - [x] MESSAGE_UPDATE
 - [x] MESSAGE_DELETE
-- [ ] ~~MESSAGE\_DELETE_BULK~~ *DiscordGo doesn't allow handling this event type*
+- [ ] ~~MESSAGE\_DELETE_BULK~~ (Discord doesn't send this anymore)
 - [x] PRESENCE_UPDATE
 - [x] TYPING_START
 - [x] USER\_SETTINGS_UPDATE

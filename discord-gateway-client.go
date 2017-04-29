@@ -6,135 +6,119 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"syscall"
 	"time"
 
 	log "github.com/Sirupsen/logrus"
 	"github.com/bwmarrin/discordgo"
 	"github.com/gmallard/stompngo"
-
-	discordmanager "github.com/project-holo/discord-gateway-client/discord"
-	stompmanager "github.com/project-holo/discord-gateway-client/stomp"
 )
 
-// Event message send parameters.
-const (
-	eventsDestination = "/events"
-	consumeWindow     = time.Minute * 5 // 5 minute window
-)
-
-// Storage variables for Discord and STOMP connections.
+// Configuration variables.
 var (
-	discord *discordgo.Session
-	stomp   *stompngo.Connection
+	discordToken      string
+	eventsDestination string
+	shardCount        int
+	shardID           int
+	brokerURI         string
+	debugMode         bool
 )
 
-// Default headers to send with all STOMP event messages.
-var defaultEventMessageHeaders = stompngo.Headers{
-	stompngo.HK_DESTINATION, eventsDestination,
-	"persistent", "true",
-	"priority", "10",
-	stompngo.HK_CONTENT_TYPE, "application/json; charset=utf8",
-}
+func init() {
+	// Load configuration from environment
+	discordToken = os.Getenv("DISCORD_TOKEN")
+	eventsDestination = os.Getenv("EVENTS_DESTINATION")
+	shardCount, _ = strconv.Atoi(os.Getenv("SHARD_COUNT"))
+	shardID, _ = strconv.Atoi(os.Getenv("SHARD_ID"))
+	brokerURI = os.Getenv("BROKER_URI")
+	debugMode, _ = strconv.ParseBool(os.Getenv("DEBUG"))
 
-// Event data struct for all STOMP event messages.
-type event struct {
-	Type    string      `json:"type"`
-	ShardID int         `json:"shard_id"`
-	Data    interface{} `json:"data"`
-}
-
-// serializeAndDispatchEvent serializes and sends data to the events destination
-// on the STOMP broker.
-func serializeAndDispatchEvent(Type string, data interface{}) {
-	// JSON encode data
-	j, err := json.Marshal(event{
-		Type:    Type,
-		ShardID: discord.ShardID,
-		Data:    data,
-	})
-	if err != nil {
-		log.WithFields(log.Fields{
-			"error": err,
-		}).Errorf("Failed to serialize %v event", Type)
-		return
-	}
-
-	// Construct message headers
-	var body = []byte(j)
-	h := stompngo.Headers{
-		"expires", strconv.FormatInt(time.Now().Add(consumeWindow).UnixNano()/1000000, 10),
-		stompngo.HK_CONTENT_LENGTH, strconv.Itoa(len(body)),
-	}
-
-	// Send the message
-	err = stomp.SendBytes(defaultEventMessageHeaders.AddHeaders(h), body)
-	if err != nil {
-		log.WithFields(log.Fields{
-			"error": err,
-		}).Errorf("Failed to send a message to the STOMP broker")
-	}
-}
-
-func main() {
-	var (
-		Debug      = flag.Bool("d", false, "Enable debug mode")
-		ShardCount = flag.String("c", "0", "Shard count")
-		ShardID    = flag.String("s", "0", "Shard ID")
-		StompURI   = flag.String("b", "", "STOMP broker connection URI")
-		Token      = flag.String("t", "", "Discord auth token")
-		err        error
-	)
+	// Parse configuration flags from command-line
+	flag.StringVar(&discordToken, "token", "", "* Discord auth token")
+	flag.StringVar(&eventsDestination, "events-dest", "/events", "Broker events destination")
+	flag.IntVar(&shardCount, "shard-count", 0, "Shard count")
+	flag.IntVar(&shardID, "shard", 0, "Shard ID")
+	flag.StringVar(&brokerURI, "broker", "", "* Broker connection URI")
+	flag.BoolVar(&debugMode, "debug", false, "Enable debug mode")
 	flag.Parse()
 
 	// Debug mode
-	if *Debug != false {
+	if debugMode != false {
 		log.SetLevel(log.DebugLevel)
 	}
 
 	// Print flags to debug
 	log.WithFields(log.Fields{
-		"Debug":      *Debug,
-		"ShardCount": *ShardCount,
-		"ShardID":    *ShardID,
-		"StompURI":   *StompURI,
-		"Token":      *Token,
+		"discordToken": discordToken,
+		"shardCount":   shardCount,
+		"shardID":      shardID,
+		"brokerURI":    brokerURI,
+		"debugMode":    debugMode,
 	}).Debug("Flags")
+}
+
+func main() {
+	var err error
 
 	// Connect to STOMP broker
-	s, err := stompmanager.CreateStompConnection(*StompURI)
+	stomp, err := createStompConnection(brokerURI)
 	if err != nil {
-		log.WithFields(log.Fields{
-			"error": err,
-		}).Fatal("Failed to create connection to STOMP broker")
+		log.WithField("error", err).Fatal("failed to create connection to STOMP broker")
 	}
-	stomp = s
 	log.Debug("connected to STOMP broker")
 
 	// Create Discord client
-	shardID, _ := strconv.Atoi(*ShardID)
-	shardCount, _ := strconv.Atoi(*ShardCount)
-	d, me, err := discordmanager.CreateDiscordClient(*Token, shardID, shardCount)
+	// Create session
+	discord, err := discordgo.New(discordToken)
 	if err != nil {
 		log.WithFields(log.Fields{
 			"error": err,
-		}).Fatal("Failed to create Discord client session")
-		return
+		}).Fatal("failed to create Discord session")
 	}
-	discord = d
-	log.Debug("created Discord session")
 
-	// Add Discord gateway event handlers
-	for i := 0; i < len(eventHandlers); i++ {
-		discord.AddHandler(eventHandlers[i])
+	// Fetch user information for the user, used to check for valid token
+	// and to print user information to debug
+	me, err := discord.User("@me")
+	if err != nil {
+		log.WithField("error", err).Fatal("failed to GET /users/@me from Discord API, token may be invalid")
 	}
-	log.Debugf("attached %v event handlers to Discord session", len(eventHandlers))
+	log.Debug("fetched /users/@me from Discord API")
+	log.Debugf("@me=%v", me.ID)
+	log.Debugf("persona=%v#%v", me.Username, me.Discriminator)
+
+	// Shard parameters
+	discord.ShardID = shardID
+	discord.ShardCount = shardCount
+	if discord.ShardCount <= 0 {
+		discord.ShardCount = 1
+	}
+	log.Debugf("shard=%v/%v", discord.ShardID, discord.ShardCount)
+
+	// Ready logger
+	discord.AddHandlerOnce(func(s *discordgo.Session, e *discordgo.Ready) {
+		// s.UpdateStatus(0, "ProjectHOLO")
+		log.Debug("READY")
+	})
+
+	// Add Discord gateway event handler
+	discord.AddHandler(func(s *discordgo.Session, e *discordgo.Event) {
+		if e.Operation != 0 || e.Type == "" {
+			return
+		}
+		if e.Struct == nil {
+			err := json.Unmarshal(e.RawData, &e.Struct)
+			if err != nil {
+				log.Warn("failed to unmarshal event without discordgo struct")
+			}
+		}
+
+		serializeAndDispatchEvent(discord, stomp, e.Type, e.Struct)
+	})
 
 	// Connect to the Discord gateway
 	err = discord.Open()
 	if err != nil {
-		log.WithFields(log.Fields{
-			"error": err,
-		}).Fatal("Failed to connect to the Discord gateway")
+		log.WithField("error", err).Fatal("failed to connect to the Discord gateway")
 		return
 	}
 	log.Debug("opened Discord gateway connection")
@@ -142,9 +126,30 @@ func main() {
 	// Ready
 	log.Infof("%v is ready to rumble!", me.Username)
 
-	// Wait for a signal to exit
-	log.Info("Press CTRL+C to exit")
+	// Wait for a SIGINT to exit
+	log.Info("press CTRL+C to exit")
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt, os.Kill)
+	<-c
+
+	// Close connections to Discord and message broker, timeout after 5s
+	log.Info("Exiting, press CTRL+C again to force exit.")
+	go func() {
+		err = discord.Close()
+		if err != nil {
+			log.WithField("error", err).Error("Failed to close Discord connection")
+		}
+		log.Debug("closed Discord connection")
+		err = stomp.Disconnect(stompngo.Headers{})
+		if err != nil {
+			log.WithField("error", err).Error("Failed to disconnect from STOMP broker")
+		}
+		log.Debug("closed STOMP broker connection")
+		c <- syscall.SIGINT
+	}()
+	time.AfterFunc(5*time.Second, func() {
+		log.Debug("5s has passed, force exiting")
+		c <- syscall.SIGINT
+	})
 	<-c
 }

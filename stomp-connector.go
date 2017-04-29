@@ -1,6 +1,7 @@
-package discordgatewayclient_stompmanager
+package main
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"net/url"
@@ -11,56 +12,40 @@ import (
 	"github.com/gmallard/stompngo"
 )
 
-const (
-	// Accepted STOMP protocol versions.
-	AcceptedVersions = "1.1,1.2"
+// Accepted STOMP protocol versions.
+const AcceptedVersions = "1.1,1.2"
 
-	// Read and write timeout values.
+// Read and write timeout values.
+const (
 	ReadTimeout  = time.Minute / time.Millisecond
 	WriteTimeout = time.Minute / time.Millisecond
 )
 
-// Errors.
-var (
-	errInvalidURIScheme           = stompConnectionURIError{Msg: "invalid connection URI scheme, must be \"stomp\""}
-	errFailedToPassURI            = stompConnectionURIError{Msg: "failed to parse connection URI"}
-	errMissingURI                 = stompConnectionURIError{Msg: "missing connection URI, must be set"}
-	errURIUsernameWithoutPassword = stompConnectionURIError{Msg: "username supplied on URI without password"}
-)
-
+// defaultConnectHeaders is a set of default connection headers for any connections to STOMP brokers.
 var defaultConnectHeaders = stompngo.Headers{
 	stompngo.HK_HEART_BEAT, fmt.Sprintf("%d,%d", WriteTimeout, ReadTimeout),
 	stompngo.HK_ACCEPT_VERSION, AcceptedVersions,
 }
 
-type stompConnectionURIError struct {
-	Msg string
-}
-
-func (e stompConnectionURIError) Error() string {
-	return e.Msg
-}
-
-// CreateStompConnection creates a connection to a STOMP broker from a
-// connection URI and returns it.
-func CreateStompConnection(uri string) (*stompngo.Connection, error) {
+// createStompConnection creates a connection to a STOMP broker from a connection URI and returns it.
+func createStompConnection(uri string) (*stompngo.Connection, error) {
 	// Parse connection URI
 	if uri == "" {
-		return nil, errMissingURI
+		return nil, errors.New("missing connection URI, must be set")
 	}
 	u, err := url.Parse(uri)
 	if err != nil {
-		return nil, errFailedToPassURI
+		return nil, errors.New("failed to parse connection URI")
 	}
 	if u.Scheme != "stomp" {
-		return nil, errInvalidURIScheme
+		return nil, errors.New("invalid connection URI scheme, must be \"stomp\"")
 	}
 	if u.Port() == "" {
 		u.Host += ":61613"
 	}
 	if u.User != nil {
 		if _, pSet := u.User.Password(); !pSet {
-			return nil, errURIUsernameWithoutPassword
+			return nil, errors.New("username supplied in URI without password")
 		}
 	}
 	log.Debug("validated STOMP connection URI")
@@ -77,9 +62,7 @@ func CreateStompConnection(uri string) (*stompngo.Connection, error) {
 		pass, _ := u.User.Password()
 		h = h.Add(stompngo.HK_PASSCODE, pass)
 	}
-	log.WithFields(log.Fields{
-		"headers": fmt.Sprintf("%#v", h),
-	}).Debug("constructed STOMP connection-specific headers")
+	log.WithField("headers", fmt.Sprintf("%#v", h)).Debug("constructed STOMP connection-specific headers")
 
 	// Create network connection
 	n, err := net.Dial(stompngo.NetProtoTCP, u.Host)
