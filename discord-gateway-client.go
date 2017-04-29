@@ -16,12 +16,12 @@ import (
 
 // Configuration variables.
 var (
-	discordToken      string
-	eventsDestination string
-	shardCount        int
-	shardID           int
-	brokerURI         string
-	debugMode         bool
+	discordToken      string // default = ""
+	eventsDestination string // default = "/events"
+	shardCount        int    // default = 1
+	shardID           int    // default = 1
+	brokerURI         string // default = ""
+	debugMode         bool   // default = false
 )
 
 func init() {
@@ -33,13 +33,24 @@ func init() {
 	brokerURI = os.Getenv("BROKER_URI")
 	debugMode, _ = strconv.ParseBool(os.Getenv("DEBUG"))
 
+	// Set values to default if unchanged
+	if len(eventsDestination) == 0 {
+		eventsDestination = "/events"
+	}
+	if shardCount < 1 {
+		shardCount = 1
+	}
+	if shardID < 1 {
+		shardID = 1
+	}
+
 	// Parse configuration flags from command-line
-	flag.StringVar(&discordToken, "token", "", "* Discord auth token")
-	flag.StringVar(&eventsDestination, "events-dest", "/events", "Broker events destination")
-	flag.IntVar(&shardCount, "shard-count", 0, "Shard count")
-	flag.IntVar(&shardID, "shard", 0, "Shard ID")
-	flag.StringVar(&brokerURI, "broker", "", "* Broker connection URI")
-	flag.BoolVar(&debugMode, "debug", false, "Enable debug mode")
+	flag.StringVar(&discordToken, "token", discordToken, "* Discord auth token")
+	flag.StringVar(&eventsDestination, "events-dest", eventsDestination, "Broker events destination")
+	flag.IntVar(&shardCount, "shard-count", shardCount, "Shard count")
+	flag.IntVar(&shardID, "shard", shardID, "Shard ID")
+	flag.StringVar(&brokerURI, "broker", brokerURI, "* Broker connection URI")
+	flag.BoolVar(&debugMode, "debug", debugMode, "Enable debug mode")
 	flag.Parse()
 
 	// Debug mode
@@ -124,7 +135,7 @@ func main() {
 	log.Debug("opened Discord gateway connection")
 
 	// Ready
-	log.Infof("%v is ready to rumble!", me.Username)
+	log.Infof("%v#%v is ready to rumble!", me.Username, me.Discriminator)
 
 	// Wait for a SIGINT to exit
 	log.Info("press CTRL+C to exit")
