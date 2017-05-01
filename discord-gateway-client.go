@@ -12,25 +12,32 @@ import (
 	log "github.com/Sirupsen/logrus"
 	"github.com/bwmarrin/discordgo"
 	"github.com/gmallard/stompngo"
+	"strings"
 )
 
 // Configuration variables.
 var (
+	brokerURI         string // default = ""
+	ignoreEvents      string // default = ""
 	discordToken      string // default = ""
 	eventsDestination string // default = "/events"
 	shardCount        int    // default = 1
-	shardID           int    // default = 1
-	brokerURI         string // default = ""
-	debugMode         bool   // default = false
+	shardID           int    // default = ""
+
+	debugMode bool // default = false
 )
+
+// Ignored events map, used in event listener to filter out unwanted events before they are sent to be consumed.
+var ignoredEventsMap map[string]struct{} = map[string]struct{}{}
 
 func init() {
 	// Load configuration from environment
+	brokerURI = os.Getenv("BROKER_URI")
+	ignoreEvents = os.Getenv("IGNORE_EVENTS")
 	discordToken = os.Getenv("DISCORD_TOKEN")
 	eventsDestination = os.Getenv("EVENTS_DESTINATION")
 	shardCount, _ = strconv.Atoi(os.Getenv("SHARD_COUNT"))
 	shardID, _ = strconv.Atoi(os.Getenv("SHARD_ID"))
-	brokerURI = os.Getenv("BROKER_URI")
 	debugMode, _ = strconv.ParseBool(os.Getenv("DEBUG"))
 
 	// Set values to default if unchanged
@@ -46,12 +53,21 @@ func init() {
 
 	// Parse configuration flags from command-line
 	flag.StringVar(&discordToken, "token", discordToken, "* Discord auth token")
+	flag.StringVar(&ignoreEvents, "ignore-events", ignoreEvents, "Events to ignore, comma sep.")
 	flag.StringVar(&eventsDestination, "events-dest", eventsDestination, "Broker events destination")
 	flag.IntVar(&shardCount, "shard-count", shardCount, "Shard count")
 	flag.IntVar(&shardID, "shard", shardID, "Shard ID")
 	flag.StringVar(&brokerURI, "broker", brokerURI, "* Broker connection URI")
 	flag.BoolVar(&debugMode, "debug", debugMode, "Enable debug mode")
 	flag.Parse()
+
+	// Parse disabledEvents into ignoreEventsMap
+	for _, v := range strings.Split(ignoreEvents, ",") {
+		v := strings.TrimSpace(v)
+		if len(v) > 0 {
+			ignoredEventsMap[v] = struct{}{}
+		}
+	}
 
 	// Debug mode
 	if debugMode != false {
@@ -78,8 +94,7 @@ func main() {
 	}
 	log.Debug("connected to STOMP broker")
 
-	// Create Discord client
-	// Create session
+	// Create Discord session
 	discord, err := discordgo.New(discordToken)
 	if err != nil {
 		log.WithFields(log.Fields{
@@ -87,8 +102,7 @@ func main() {
 		}).Fatal("failed to create Discord session")
 	}
 
-	// Fetch user information for the user, used to check for valid token
-	// and to print user information to debug
+	// Fetch user information for the user, used to check for valid token and to print user information to debug
 	me, err := discord.User("@me")
 	if err != nil {
 		log.WithField("error", err).Fatal("failed to GET /users/@me from Discord API, token may be invalid")
@@ -113,13 +127,19 @@ func main() {
 
 	// Add Discord gateway event handler
 	discord.AddHandler(func(s *discordgo.Session, e *discordgo.Event) {
+		// Ignore events that don't contain data
 		if e.Operation != 0 || e.Type == "" {
 			return
 		}
+		// Ignore events in ignoredEventsMap, from ignoreEvents configuration variable
+		if _, ok := ignoredEventsMap[e.Type]; ok {
+			return
+		}
+		// Unmarshal event if no data is supplied by DiscordGo
 		if e.Struct == nil {
 			err := json.Unmarshal(e.RawData, &e.Struct)
 			if err != nil {
-				log.Warn("failed to unmarshal event without discordgo struct")
+				log.Warn("failed to unmarshal event without DiscordGo struct")
 			}
 		}
 
