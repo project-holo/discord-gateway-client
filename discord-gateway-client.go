@@ -147,6 +147,8 @@ func main() {
 	})
 
 	// Connect to the Discord gateway
+	discord.Compress = true
+	discord.ShouldReconnectOnError = true
 	err = discord.Open()
 	if err != nil {
 		log.WithField("error", err).Fatal("failed to connect to the Discord gateway")
